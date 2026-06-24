@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>架空株式市場MVP チャート版</title>
+<style>
+body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f4f4f4;padding:16px;margin:0}
+h1{text-align:center;margin:8px 0 4px}
+.wrap{max-width:980px;margin:auto}
+.card{background:white;border:1px solid #ccc;border-radius:12px;padding:12px;margin:10px 0}
+table{width:100%;border-collapse:collapse}
+th,td{padding:8px;border-bottom:1px solid #ddd;text-align:center}
+button{padding:7px 11px;border:1px solid #777;border-radius:7px;background:white;cursor:pointer}
+button:hover{background:#eee}
+#news{font-size:15px;font-weight:bold;line-height:1.5}
+.grid{display:grid;grid-template-columns:1.1fr .9fr;gap:12px}
+@media(max-width:800px){.grid{grid-template-columns:1fr}}
+canvas{width:100%;height:280px;background:#fafafa;border:1px solid #ddd;border-radius:10px}
+.small{font-size:13px;color:#555}
+.green{color:green;font-weight:bold}
+.red{color:#c33;font-weight:bold}
+select{padding:8px;border-radius:7px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>📈 架空株式市場MVP</h1>
+<p style="text-align:center;margin-top:0">ニュースを読んで、架空企業の株を売買しよう。</p>
+
+<div class="grid">
+  <div>
+    <div class="card">
+      資金: <b id="cash"></b><br>
+      総資産: <b id="asset"></b><br>
+      日数: <b id="day">1</b>日目
+    </div>
+
+    <div class="card">
+      📰 ニュース<br>
+      <div id="news"></div>
+    </div>
+
+    <div class="card">
+      <table id="stocks"></table>
+    </div>
+
+    <button onclick="nextTurn()">次の日へ</button>
+    <button onclick="restart()">リスタート</button>
+  </div>
+
+  <div>
+    <div class="card">
+      <b>株価チャート</b><br>
+      <span class="small">表示銘柄：</span>
+      <select id="chartSelect" onchange="drawChart()"></select>
+      <canvas id="chart" width="520" height="300"></canvas>
+    </div>
+
+    <div class="card">
+      <b>保有株</b>
+      <div id="portfolio" class="small"></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+let cash;
+let day;
+let stocks;
+
+const initialStocks = [
+  {name:"ネオネット", price:1000, shares:0, type:"SNS成長株"},
+  {name:"スカイモーターズ", price:1200, shares:0, type:"自動車ギャンブル株"},
+  {name:"ユニコーンテック", price:800, shares:0, type:"スタートアップ株"},
+  {name:"ピクセルゲームズ", price:600, shares:0, type:"ゲーム株"},
+  {name:"フューチャーAI", price:1500, shares:0, type:"AI大型株"}
+];
+
+const events = [
+  {txt:"ネオネット、新SNSが大学生の間で大流行", stock:"ネオネット", move:0.25},
+  {txt:"ネオネット、サーバー障害でユーザー離れ懸念", stock:"ネオネット", move:-0.18},
+  {txt:"スカイモーターズ、自動運転タクシーを発表", stock:"スカイモーターズ", move:0.30},
+  {txt:"スカイモーターズ、試作車が謎の故障", stock:"スカイモーターズ", move:-0.32},
+  {txt:"ユニコーンテック、大型資金調達に成功", stock:"ユニコーンテック", move:0.40},
+  {txt:"ユニコーンテック、創業者同士の対立が報道される", stock:"ユニコーンテック", move:-0.28},
+  {txt:"ピクセルゲームズ、新作が配信者の間でバズる", stock:"ピクセルゲームズ", move:0.35},
+  {txt:"ピクセルゲームズ、新作がバグだらけと炎上", stock:"ピクセルゲームズ", move:-0.30},
+  {txt:"フューチャーAI、次世代AIモデルを発表", stock:"フューチャーAI", move:0.22},
+  {txt:"フューチャーAI、規制強化の懸念", stock:"フューチャーAI", move:-0.20},
+  {txt:"市場全体に買いが広がる", stock:null, move:0.10},
+  {txt:"市場全体がリスクオフ。全面安", stock:null, move:-0.10}
+];
+
+function restart(){
+  cash = 1000000;
+  day = 1;
+  stocks = initialStocks.map(s=>({...s, history:[s.price], lastMove:0}));
+  document.getElementById("news").textContent = "市場がオープンしました";
+  setupSelect();
+  render();
+}
+
+function setupSelect(){
+  const sel = document.getElementById("chartSelect");
+  sel.innerHTML = "";
+  stocks.forEach((s,i)=>{
+    const opt=document.createElement("option");
+    opt.value=i;
+    opt.textContent=s.name;
+    sel.appendChild(opt);
+  });
+}
+
+function buy(i){
+  const s = stocks[i];
+  if(cash < s.price) return;
+  cash -= s.price;
+  s.shares++;
+  render();
+}
+
+function sell(i){
+  const s = stocks[i];
+  if(s.shares <= 0) return;
+  s.shares--;
+  cash += s.price;
+  render();
+}
+
+function nextTurn(){
+  day++;
+  const e = events[Math.floor(Math.random()*events.length)];
+  document.getElementById("news").textContent = e.txt;
+
+  stocks.forEach(s=>{
+    let change = 0;
+    if(e.stock===null){
+      change = e.move + (Math.random()-0.5)*0.04;
+    }else if(e.stock===s.name){
+      change = e.move;
+    }else{
+      change = (Math.random()-0.5)*0.08;
+    }
+
+    const old = s.price;
+    s.price = Math.max(80, Math.round(s.price*(1+change)));
+    s.lastMove = (s.price-old)/old;
+    s.history.push(s.price);
+  });
+
+  render();
+}
+
+function totalAsset(){
+  return Math.round(cash + stocks.reduce((sum,s)=>sum+s.price*s.shares,0));
+}
+
+function render(){
+  document.getElementById("cash").textContent = cash.toLocaleString()+"円";
+  document.getElementById("asset").textContent = totalAsset().toLocaleString()+"円";
+  document.getElementById("day").textContent = day;
+
+  let html = `
+  <tr>
+    <th>銘柄</th>
+    <th>特徴</th>
+    <th>株価</th>
+    <th>前日比</th>
+    <th>保有</th>
+    <th>売買</th>
+  </tr>`;
+
+  stocks.forEach((s,i)=>{
+    const pct = (s.lastMove*100).toFixed(1);
+    const cls = s.lastMove>=0 ? "green" : "red";
+    html += `
+    <tr>
+      <td><button onclick="selectChart(${i})">${s.name}</button></td>
+      <td class="small">${s.type}</td>
+      <td>${s.price.toLocaleString()}円</td>
+      <td class="${cls}">${s.lastMove===0 ? "-" : pct+"%"}</td>
+      <td>${s.shares}</td>
+      <td>
+        <button onclick="buy(${i})">買う</button>
+        <button onclick="sell(${i})">売る</button>
+      </td>
+    </tr>`;
+  });
+
+  document.getElementById("stocks").innerHTML = html;
+
+  document.getElementById("portfolio").innerHTML =
+    stocks.filter(s=>s.shares>0)
+      .map(s=>`${s.name} × ${s.shares}株 / 評価額 ${(s.price*s.shares).toLocaleString()}円`)
+      .join("<br>") || "なし";
+
+  drawChart();
+}
+
+function selectChart(i){
+  document.getElementById("chartSelect").value = i;
+  drawChart();
+}
+
+function drawChart(){
+  const canvas = document.getElementById("chart");
+  const ctx = canvas.getContext("2d");
+  const i = Number(document.getElementById("chartSelect").value || 0);
+  const s = stocks[i];
+  const data = s.history;
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  const pad = 42;
+  const w = canvas.width - pad*2;
+  const h = canvas.height - pad*2;
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = Math.max(1, max-min);
+
+  // 背景
+  ctx.fillStyle = "#fafafa";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  // グリッド
+  ctx.strokeStyle = "#ddd";
+  ctx.lineWidth = 1;
+  ctx.font = "12px sans-serif";
+  ctx.fillStyle = "#555";
+
+  for(let k=0;k<=4;k++){
+    const y = pad + h*k/4;
+    ctx.beginPath();
+    ctx.moveTo(pad,y);
+    ctx.lineTo(pad+w,y);
+    ctx.stroke();
+
+    const val = Math.round(max - range*k/4);
+    ctx.fillText(val+"円", 4, y+4);
+  }
+
+  // 軸
+  ctx.strokeStyle = "#999";
+  ctx.beginPath();
+  ctx.moveTo(pad,pad);
+  ctx.lineTo(pad,pad+h);
+  ctx.lineTo(pad+w,pad+h);
+  ctx.stroke();
+
+  // ライン
+  ctx.strokeStyle = "#222";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  data.forEach((v,idx)=>{
+    const x = pad + (data.length===1 ? 0 : w*idx/(data.length-1));
+    const y = pad + h - ((v-min)/range)*h;
+    if(idx===0) ctx.moveTo(x,y);
+    else ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+
+  // 点
+  ctx.fillStyle = "#222";
+  data.forEach((v,idx)=>{
+    const x = pad + (data.length===1 ? 0 : w*idx/(data.length-1));
+    const y = pad + h - ((v-min)/range)*h;
+    ctx.beginPath();
+    ctx.arc(x,y,4,0,Math.PI*2);
+    ctx.fill();
+  });
+
+  // タイトル
+  ctx.fillStyle = "#111";
+  ctx.font = "bold 16px sans-serif";
+  ctx.fillText(s.name + " 株価推移", pad, 24);
+
+  ctx.font = "12px sans-serif";
+  ctx.fillStyle = "#555";
+  ctx.fillText("1日目", pad, canvas.height-10);
+  ctx.fillText(day+"日目", pad+w-40, canvas.height-10);
+}
+
+restart();
+</script>
+</body>
+</html>
